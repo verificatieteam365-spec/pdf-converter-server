@@ -1,0 +1,4 @@
+fastapi
+uvicorn
+pdfitdown
+python-multipart

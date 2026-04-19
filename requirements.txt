@@ -2,3 +2,6 @@ fastapi
 uvicorn
 pdfitdown
 python-multipart
+google-auth
+google-auth-httplib2
+google-api-python-client

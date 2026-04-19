@@ -5,6 +5,7 @@ from pdfitdown.pdfconversion import Converter
 import os
 import shutil
 import uuid
+import json
 
 app = FastAPI()
 
@@ -17,6 +18,37 @@ app.add_middleware(
 )
 
 converter = Converter()
+
+# Google Drive instellingen (via environment variables)
+DRIVE_FOLDER_ID = "1vJbJ2VczPr_PNk8oSoHjiqOpRGS-HMbU"
+SERVICE_ACCOUNT_INFO = json.loads(os.environ.get("GOOGLE_CREDENTIALS", "{}"))
+
+def upload_to_drive(file_path, filename):
+    """Upload een bestand naar Google Drive"""
+    if not SERVICE_ACCOUNT_INFO:
+        return None
+    
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+        
+        credentials = service_account.Credentials.from_service_account_info(
+            SERVICE_ACCOUNT_INFO,
+            scopes=["https://www.googleapis.com/auth/drive.file"]
+        )
+        drive_service = build("drive", "v3", credentials=credentials)
+        
+        file_metadata = {
+            "name": filename,
+            "parents": [DRIVE_FOLDER_ID]
+        }
+        media = MediaFileUpload(file_path, mimetype="application/pdf")
+        file = drive_service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+        return file.get("id")
+    except Exception as e:
+        print(f"Drive upload failed: {e}")
+        return None
 
 @app.post("/convert")
 async def convert_file(file: UploadFile = File(...)):
@@ -33,7 +65,10 @@ async def convert_file(file: UploadFile = File(...)):
         # Converteer naar PDF
         converter.convert(file_path=temp_path, output_path=output_path)
         
-        # Stuur PDF terug
+        # Upload naar Google Drive (als credentials bestaan)
+        upload_to_drive(output_path, f"{file.filename}.pdf")
+        
+        # Stuur PDF terug naar gebruiker
         with open(output_path, "rb") as f:
             pdf_content = f.read()
         
